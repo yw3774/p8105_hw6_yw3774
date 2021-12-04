@@ -1,0 +1,200 @@
+---
+title: "P8105_hw6_yw3774"
+author: "Yida Wang"
+date: "11/24/2021"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggplot2)
+library(modelr)
+knitr::opts_chunk$set(
+  fig.width = 6,
+  fig.asp = .6,
+  out.width = "90%"
+)
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+scale_colour_discrete = scale_color_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+```
+# problem 1
+### data cleaning
+```{r}
+birthweight = read_csv("birthweight.csv") %>%
+  janitor::clean_names() %>% 
+  mutate(
+    babysex = ifelse(babysex == 1, "male", "female"),
+    babysex = as.factor(babysex),
+    frace = factor(recode(frace, `1` = "White", `2` = "Black", `3` = "Asian", `4` = "Puerto Rican", `8` = "Other", `9` = "Unknown")), 
+    mrace = factor(recode(mrace, `1` = "White", `2` = "Black", `3` = "Asian", `4` = "Puerto Rican", `8` = "Other")),
+    malform = ifelse(malform == 0, "absent", "present"), 
+    malform = as.factor(malform)
+  )
+```
+
+### check missing value 
+```{r}
+purrr::map(birthweight, ~sum(is.na(.)))
+```
+
+```{r}
+summary(birthweight)
+```
+
+### Build the model base on a data-driven model-building process
+step-wise regression
+```{r}
+mult.fit = lm(bwt ~ ., data = birthweight)
+step(mult.fit, direction = 'both')
+```
+According to the result calculating above, the regression model of birthweight contains babysexmale, bhead, blength, delwt, fincome, gaweeks, mheight, mraceBlack, mracePuerto Rican, mraceWhite, parity, ppwt, smoken.
+```{r}
+model_1 = lm(bwt ~ babysex + bhead + blength + delwt + fincome + gaweeks + mheight + mrace + parity + ppwt + smoken, data = birthweight)
+```
+residuals plot
+```{r}
+birthweight %>% 
+  add_predictions(model_1) %>% 
+  add_residuals(model_1) %>% 
+  ggplot(aes(x = pred, y = resid)) +
+  geom_point(alpha = 0.3) + 
+  geom_smooth(se = F, color = "red", method = "lm") +
+  labs(title = "Residuals Against Fitted Values",
+       x = "Fitted value", 
+       y = "Residual")
+```
+### Other two models
+Using length at birth and gestational age as predictors (main effects only)
+```{r}
+model_2 = lm(bwt ~ blength + gaweeks, data = birthweight)
+```
+Using head circumference, length, sex, and all interactions (including the three-way interaction) between these
+```{r}
+model_3 = lm(bwt ~ bhead + blength + babysex + bhead * blength + bhead * babysex + blength * babysex + bhead * blength * babysex, data = birthweight)
+```
+### comparison
+Make comparison in terms of the cross-validated prediction error between the models
+```{r}
+cv = crossv_mc(birthweight, 100) %>% 
+  mutate(
+    model_1 = map(train, ~lm(bwt ~ babysex + bhead + blength + delwt + fincome + gaweeks + mheight + mrace + parity + ppwt + smoken, data = .x)),
+    model_2 = map(train, ~lm(bwt ~ blength + gaweeks, data = .x)),
+    model_3 = map(train, ~lm(bwt ~ bhead + blength + babysex + 
+               bhead * blength + bhead * babysex + blength * babysex + 
+               bhead * blength * babysex, data = .x))) %>% 
+  mutate(
+    rmse_model_1 = map2_dbl(model_1, test, ~rmse(model = .x, data = .y)),
+    rmse_model_2 = map2_dbl(model_2, test, ~rmse(model = .x, data = .y)),
+    rmse_model_3 = map2_dbl(model_3, test, ~rmse(model = .x, data = .y))
+    )
+
+```
+### The plot for RMSE
+```{r}
+cv %>% 
+  select(starts_with("rmse")) %>% 
+  pivot_longer(
+    everything(),
+    names_to = "model", 
+    values_to = "rmse",
+    names_prefix = "rmse_") %>% 
+  mutate(model = fct_inorder(model)) %>% 
+  ggplot(aes(x = model, y = rmse)) + 
+  geom_violin(color = "yellow") + 
+  geom_boxplot(alpha = 0.5, color = "blue")
+  
+```
+Base on the result above, we can draw a conclusion that model 1 has the lowest RMSE, which means it is the best fitted one. The model 2 has the highest RMSE.
+
+# problem 2
+```{r}
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2017-01-01",
+    date_max = "2017-12-31") %>%
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) %>%
+  select(name, id, everything())
+```
+
+### bookstrapping
+```{r}
+boot_sample = function(df) {
+  sample_frac(df, size = 1, replace = TRUE)
+}
+
+bootstrap_df = 
+  tibble(
+    strap_number = c(1:5000),
+    strap_sample = rerun(5000, boot_sample(weather_df))
+  )
+
+weather_strap_results = bootstrap_df %>% 
+  mutate(
+    models = map(strap_sample, ~lm(tmax ~ tmin, data = .x)),
+    results = map(models, broom::glance)
+  )
+```
+### Adjusted R squared
+```{r}
+adj_r2 = 
+  weather_strap_results %>%
+  select(strap_number, results) %>% 
+  unnest(results) %>% 
+  select(strap_number, adj.r.squared)
+  
+  
+adj_r2 %>%
+  ggplot(aes(x = adj.r.squared)) +
+  geom_density() +
+  labs(
+        title = "Distribution of R Squared",
+        x = "R Squared") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+quantile(adj_r2 %>% pull(adj.r.squared), prob = c(0.025, 0.975))
+```
+The R-squared values by using bootstraping approximately follows a normal distribution with mean a little higher than 0.91, and the 95% confidence interval is [0.894, 0.927].
+
+### log(beta0_hat * beta1_hat)
+
+```{r}
+log = 
+  bootstrap_df %>% 
+  mutate(
+    models = map(.x = strap_sample, ~lm(tmax ~ tmin, data = .x)),
+    results = map(models, broom::tidy)
+  ) %>% 
+  select(strap_number, results) %>% 
+  unnest(results) %>% 
+  select(strap_number, term, estimate) %>% 
+  pivot_wider(names_from = term, 
+              values_from = estimate) %>% 
+  janitor::clean_names() %>% 
+  mutate(log = log(intercept * tmin))
+
+
+log %>% 
+  ggplot(aes(x = log)) +
+  geom_density() +
+  labs(
+        title = "Distribution of Log(beta0_hat * beta1_hat)",
+        x = "log(beta0_hat * beta1_hat)")
+```
+
+```{r}
+quantile(log %>% pull(log), prob = c(0.025, 0.975))
+```
+The values of log(beta0_hat * beta1_hat) by using bootstraping are approximately normally distributed with a mean around 2.02, and the 95% confidence interval is [1.966, 2.059].
