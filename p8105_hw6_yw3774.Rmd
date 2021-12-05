@@ -23,8 +23,9 @@ options(
 scale_colour_discrete = scale_color_viridis_d
 scale_fill_discrete = scale_fill_viridis_d
 ```
-# problem 1
-### data cleaning
+# Problem 1
+
+### Data cleaning
 ```{r}
 birthweight = read_csv("birthweight.csv") %>%
   janitor::clean_names() %>% 
@@ -38,17 +39,14 @@ birthweight = read_csv("birthweight.csv") %>%
   )
 ```
 
-### check missing value 
+### Check missing value 
 ```{r}
 purrr::map(birthweight, ~sum(is.na(.)))
 ```
 
-```{r}
-summary(birthweight)
-```
-
 ### Build the model base on a data-driven model-building process
-step-wise regression
+
+Step-wise regression
 ```{r}
 mult.fit = lm(bwt ~ ., data = birthweight)
 step(mult.fit, direction = 'both')
@@ -57,7 +55,9 @@ According to the result calculating above, the regression model of birthweight c
 ```{r}
 model_1 = lm(bwt ~ babysex + bhead + blength + delwt + fincome + gaweeks + mheight + mrace + parity + ppwt + smoken, data = birthweight)
 ```
-residuals plot
+
+### Residuals plot
+
 ```{r}
 birthweight %>% 
   add_predictions(model_1) %>% 
@@ -65,11 +65,14 @@ birthweight %>%
   ggplot(aes(x = pred, y = resid)) +
   geom_point(alpha = 0.3) + 
   geom_smooth(se = F, color = "red", method = "lm") +
-  labs(title = "Residuals Against Fitted Values",
+  labs(title = "Fitted Values vs Residuals of the Model",
        x = "Fitted value", 
        y = "Residual")
 ```
+It shows that most of the points are symmetrically distributed and clustered around 0 on the y-axis.
+
 ### Other two models
+
 Using length at birth and gestational age as predictors (main effects only)
 ```{r}
 model_2 = lm(bwt ~ blength + gaweeks, data = birthweight)
@@ -78,7 +81,7 @@ Using head circumference, length, sex, and all interactions (including the three
 ```{r}
 model_3 = lm(bwt ~ bhead + blength + babysex + bhead * blength + bhead * babysex + blength * babysex + bhead * blength * babysex, data = birthweight)
 ```
-### comparison
+### Comparison
 Make comparison in terms of the cross-validated prediction error between the models
 ```{r}
 cv = crossv_mc(birthweight, 100) %>% 
@@ -110,9 +113,9 @@ cv %>%
   geom_boxplot(alpha = 0.5, color = "blue")
   
 ```
-Base on the result above, we can draw a conclusion that model 1 has the lowest RMSE, which means it is the best fitted one. The model 2 has the highest RMSE.
+Base on the plot above, we can draw a conclusion that model 1 has the lowest RMSE, which means it is the best fitted model. The model 2 has the highest RMSE with the fewest predictors which performs the worst.
 
-# problem 2
+# Problem 2
 ```{r}
 weather_df = 
   rnoaa::meteo_pull_monitors(
@@ -127,7 +130,7 @@ weather_df =
   select(name, id, everything())
 ```
 
-### bookstrapping
+### Bookstrapping
 ```{r}
 boot_sample = function(df) {
   sample_frac(df, size = 1, replace = TRUE)
@@ -159,7 +162,7 @@ adj_r2 %>%
   geom_density() +
   labs(
         title = "Distribution of R Squared",
-        x = "R Squared") +
+        x = "Estimated R Squared") +
   theme(plot.title = element_text(hjust = 0.5))
 ```
 
@@ -168,7 +171,7 @@ quantile(adj_r2 %>% pull(adj.r.squared), prob = c(0.025, 0.975))
 ```
 The R-squared values by using bootstraping approximately follows a normal distribution with mean a little higher than 0.91, and the 95% confidence interval is [0.894, 0.927].
 
-### log(beta0_hat * beta1_hat)
+### Estimated log(beta0_hat * beta1_hat)
 
 ```{r}
 log = 
@@ -191,10 +194,10 @@ log %>%
   geom_density() +
   labs(
         title = "Distribution of Log(beta0_hat * beta1_hat)",
-        x = "log(beta0_hat * beta1_hat)")
+        x = "Estimated (beta0_hat * beta1_hat)")
 ```
 
 ```{r}
 quantile(log %>% pull(log), prob = c(0.025, 0.975))
 ```
-The values of log(beta0_hat * beta1_hat) by using bootstraping are approximately normally distributed with a mean around 2.02, and the 95% confidence interval is [1.966, 2.059].
+The values of log(beta0_hat * beta1_hat) by using bootstraping are approximately normally distributed with a mean around 2.02, and has a slightly longer tail on the left. The 95% confidence interval is [1.966, 2.059].
